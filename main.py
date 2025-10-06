@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import NoResultFound, IntegrityError, DataError, OperationalError
 from contextlib import asynccontextmanager
 from database import Base, engine
-from routes import users, auth, roles_permissions
+from routes import users, auth, roles_permissions, test_routs
 
 import models
 
@@ -11,6 +11,8 @@ import models
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Заполнение тестовыми данными
     yield
 
 app = FastAPI(title="BestOfTheBestAuth", lifespan=lifespan)
@@ -18,6 +20,7 @@ app = FastAPI(title="BestOfTheBestAuth", lifespan=lifespan)
 app.include_router(users.router)
 app.include_router(auth.router)
 app.include_router(roles_permissions.router)
+app.include_router(test_routs.router)
 
 @app.middleware("http")
 async def error_handler_middleware(request: Request, call_next):

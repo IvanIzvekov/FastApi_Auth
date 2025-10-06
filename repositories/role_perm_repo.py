@@ -4,11 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import and_, or_
+from sqlalchemy import or_
 from datetime import datetime
 from uuid import UUID
 
-from entities.entities import UserEntity, RoleEntity, PermissionEntity
+from entities.entities import UserEntity, RoleEntity, PermissionEntity, UserWithRolesEntity, RolesWithPermissionsEntity
 from models import Role, User, Permission
 from exceptions.custom_exceptions import UserGetError, RoleGetError, RoleAlreadyExistsError, \
     PermissionAlreadyExistsError, PermissionGetError
@@ -33,7 +33,7 @@ class RolePermissionRepository:
         except IntegrityError:
             raise PermissionAlreadyExistsError(f"Права на сущность с именем {permission.name} уже существует")
 
-    async def create_role(self, role: RoleEntity):
+    async def create_role(self, role: RoleEntity) -> RoleEntity:
         try:
             role_orm = Role(
                 name=role.name
@@ -50,7 +50,7 @@ class RolePermissionRepository:
         except IntegrityError:
             raise RoleAlreadyExistsError(f"Роль с именем {role.name} уже существует")
 
-    async def add_permissions_to_role(self, role_id: UUID, permission_ids: List[UUID]):
+    async def add_permissions_to_role(self, role_id: UUID, permission_ids: List[UUID]) -> RolesWithPermissionsEntity:
         stmt = select(Role).where(Role.id == role_id).options(selectinload(Role.permissions))
         result = await self._db.execute(stmt)
         role_orm = result.scalar_one_or_none()
@@ -70,15 +70,53 @@ class RolePermissionRepository:
         await self._db.flush()
         await self._db.refresh(role_orm)
 
-        return {
-            "role_id": str(role_orm.id),
-            "permissions": [
-                {"id": str(perm.id), "name": perm.name}
-                for perm in role_orm.permissions
-            ]
-        }
+        return RolesWithPermissionsEntity(
+            role=RoleEntity(
+                id=role_orm.id,
+                name=role_orm.name,
+                created_at=role_orm.created_at,
+                updated_at=role_orm.updated_at
+            ),
+            permissions=[PermissionEntity(
+                id=perm.id,
+                name=perm.name
+            ) for perm in role_orm.permissions]
+        )
 
-    async def set_user_role(self, user: UserEntity, roles: List[RoleEntity]):
+    async def delete_permissions_from_role(self, role_id: UUID, permission_ids: List[UUID]) -> RolesWithPermissionsEntity:
+        stmt = select(Role).where(Role.id == role_id).options(selectinload(Role.permissions))
+        result = await self._db.execute(stmt)
+        role_orm = result.scalar_one_or_none()
+        if not role_orm:
+            raise RoleGetError(f"Роль с id {role_id} не найдена")
+
+        stmt = select(Permission).where(Permission.id.in_(permission_ids))
+        result = await self._db.execute(stmt)
+        permissions_orm = result.scalars().all()
+        if not permissions_orm:
+            raise PermissionGetError(f"Указанные права не найдены")
+
+        for permission_orm in permissions_orm:
+            if permission_orm not in role_orm.permissions:
+                role_orm.permissions.remove(permission_orm)
+
+        await self._db.flush()
+        await self._db.refresh(role_orm)
+
+        return RolesWithPermissionsEntity(
+            role=RoleEntity(
+                id=role_orm.id,
+                name=role_orm.name,
+                created_at=role_orm.created_at,
+                updated_at=role_orm.updated_at
+            ),
+            permissions=[PermissionEntity(
+                id=perm.id,
+                name=perm.name
+            ) for perm in role_orm.permissions]
+        )
+
+    async def set_user_roles(self, user: UserEntity, roles: List[RoleEntity]) -> UserWithRolesEntity:
         result = await self._db.execute(
             select(User).options(selectinload(User.roles)).where(User.id == user.id)
         )
@@ -101,21 +139,74 @@ class RolePermissionRepository:
         await self._db.flush()
         await self._db.refresh(user_orm)
 
-        return {
-            'user_id': user_orm.id,
-            'roles': [
-                {
-                    'id': role.id,
-                    'name': role.name
-                }
-                for role in user_orm.roles]
-        }
+        return UserWithRolesEntity(
+            user=UserEntity(
+                id=user_orm.id,
+                first_name=user_orm,
+                last_name=user_orm.last_name,
+                patronymic=user_orm.patronymic,
+                email=user_orm.email,
+                created_at=user_orm.created_at,
+                updated_at=user_orm.updated_at,
+                is_active=user_orm.is_active,
+                deleted_at=user_orm.deleted_at
+            ),
+            roles=[RoleEntity(
+                id=role.id,
+                name=role.name,
+                created_at=role.created_at,
+                updated_at=role.updated_at
+            ) for role in user_orm.roles]
+        )
+
+    async def delete_user_roles(self, user: UserEntity, roles: List[RoleEntity]):
+        result = await self._db.execute(
+            select(User).options(selectinload(User.roles)).where(User.id == user.id)
+        )
+
+        user_orm = result.scalar_one_or_none()
+        if not user_orm:
+            raise UserGetError(f"Пользователь {user.email} не найден")
+
+        stmt = select(Role).where(Role.id.in_([role.id for role in roles]))
+        result = await self._db.execute(stmt)
+        roles_orm = result.scalars().all()
+        if not roles_orm:
+            raise RoleGetError(f"Не удалось найти указанные роли в базе данных")
+
+        existing_role_ids = {r.id for r in user_orm.roles}
+        for role_orm in roles_orm:
+            if role_orm.id not in existing_role_ids:
+                user_orm.roles.remove(role_orm)
+
+        await self._db.flush()
+        await self._db.refresh(user_orm)
+
+        return UserWithRolesEntity(
+            user=UserEntity(
+                id=user_orm.id,
+                first_name=user_orm,
+                last_name=user_orm.last_name,
+                patronymic=user_orm.patronymic,
+                email=user_orm.email,
+                created_at=user_orm.created_at,
+                updated_at=user_orm.updated_at,
+                is_active=user_orm.is_active,
+                deleted_at=user_orm.deleted_at
+            ),
+            roles=[RoleEntity(
+                id=role.id,
+                name=role.name,
+                created_at=role.created_at,
+                updated_at=role.updated_at
+            ) for role in user_orm.roles]
+        )
 
     async def get_roles(self,
                         ids: list[UUID] | None = None,
                         names: list[str] | None = None,
                         date_from: datetime | None = None,
-                        date_to: datetime | None = None) -> List[Dict[str, Any]]:
+                        date_to: datetime | None = None) -> List[RolesWithPermissionsEntity]:
         stmt = select(Role)
 
         if date_from:
@@ -148,20 +239,21 @@ class RolePermissionRepository:
 
         result = await self._db.execute(stmt)
         roles = result.scalars().all()
-        return [{
-            'id': role.id,
-            'name': role.name,
-            'created_at': role.created_at,
-            'updated_at': role.updated_at,
-            'permissions': [
-                {
-                    'id': permission.id,
-                    'name': permission.name
-                }
-            for permission in role.permissions]
-        } for role in roles]
 
-    async def get_permissions(self, ids: list[UUID] | None = None, names: list[str] | None = None):
+        return [RolesWithPermissionsEntity(
+            role=RoleEntity(
+                    id=role.id,
+                    name=role.name,
+                    created_at=role.created_at,
+                    updated_at=role.updated_at
+            ),
+            permissions=[PermissionEntity(
+                id=permission.id,
+                name=permission.name
+            ) for permission in role.permissions]
+        ) for role in roles]
+
+    async def get_permissions(self, ids: list[UUID] | None = None, names: list[str] | None = None) -> List[PermissionEntity]:
         stmt = select(Permission)
 
         if ids and names:
@@ -179,8 +271,44 @@ class RolePermissionRepository:
 
         result = await self._db.execute(stmt)
         permissions = result.scalars().all()
-        return [{
-            'id': permission.id,
-            'name': permission.name
-        } for permission in permissions]
+        return [PermissionEntity(
+            id=permission.id,
+            name=permission.name
+        ) for permission in permissions]
+
+    async def get_users_roles(self, users: list[UserEntity]) -> list[UserWithRolesEntity]:
+        user_ids = [user.id for user in users]
+
+        if not user_ids:
+            return []
+
+        stmt = (
+            select(User)
+            .options(selectinload(User.roles))
+            .where(User.id.in_(user_ids))
+        )
+
+        result = await self._db.execute(stmt)
+        users_with_roles = result.scalars().unique().all()
+
+        return [
+            UserWithRolesEntity(
+                user=UserEntity(
+                    id=user.id,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    email=user.email,
+                    created_at=user.created_at,
+                    updated_at=user.updated_at,
+                    patronymic=user.patronymic
+                ),
+                roles=[RoleEntity(
+                    id=role.id,
+                    name=role.name,
+                    created_at=role.created_at,
+                    updated_at=role.updated_at
+                ) for role in user.roles]
+            )
+         for user in users_with_roles]
+
 

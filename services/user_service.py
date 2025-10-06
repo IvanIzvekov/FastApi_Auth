@@ -1,7 +1,10 @@
+from datetime import datetime
 from typing import List
 from uuid import UUID
 
-from entities.entities import UserEntity, RoleEntity
+from sqlalchemy.util import await_only
+
+from entities.entities import UserEntity, RoleEntity, UserWithRolesEntity
 from services.auth_service import AuthService
 from repositories.role_perm_repo import RolePermissionRepository
 from repositories.user_repo import UserRepository
@@ -11,7 +14,7 @@ from exceptions.custom_exceptions import (
     UserGetError,
     UserDeleteError,
     UserUpdateError, NotFoundError,
-    RoleGetError
+    RoleGetError, UserNotHaveRoles
 )
 
 
@@ -23,7 +26,7 @@ class UserService:
     async def update_user(
         self,
         user: UserEntity,
-    ) -> UserEntity:
+    ) -> UserWithRolesEntity:
         """Обновить данные пользователя"""
         try:
             hash_password = await AuthService.hash_password(user.hash_password) if user.hash_password else None
@@ -33,9 +36,7 @@ class UserService:
             if exist_user and exist_user.id != user.id:
                 raise UserEmailExistsError("Пользователь с таким email уже существует")
 
-            user = await self.repo.update(
-                user=user
-            )
+            user = await self.repo.update(user=user)
             return user
         except UserEmailExistsError as e:
             raise ValueError(str(e))
@@ -44,7 +45,7 @@ class UserService:
         except Exception as e:
             raise Exception(f"Неизвестная ошибка при обновлении пользователя: {e}") from e
 
-    async def create_user(self, user: UserEntity) -> UserEntity:
+    async def create_user(self, user: UserEntity) -> UserWithRolesEntity:
         """
         Создать нового пользователя
         """
@@ -65,10 +66,11 @@ class UserService:
             user_role = await self.role_perm_repo.get_roles(names=["user"])
             if not user_role:
                 raise RoleGetError("Роль user не найдена")
-            user_role = RoleEntity(id=user_role[0].get('id'), name=user_role[0].get('name'), created_at=user_role[0].get('created_at'), updated_at=user_role[0].get('updated_at'))
-            await self.role_perm_repo.set_user_role(user, [user_role])
 
-            return new_user
+            user_role = user_role[0].role
+            usr = await self.role_perm_repo.set_user_roles(user, [user_role])
+
+            return usr
 
         except RoleGetError as e:
             raise e
@@ -107,12 +109,52 @@ class UserService:
         except UserDeleteError as e:
             raise Exception(f"Ошибка при удалении пользователя id={user.id}: {e}") from e
 
-    async def add_role_to_user(self, user_id: UUID, role_ids: List[UUID]):
+    async def add_roles_to_user(self, user_id: UUID, role_ids: List[UUID]) -> UserWithRolesEntity:
         usr = await self.repo.get_by_id(user_id)
         if usr is None:
             raise UserGetError(f"Пользователь с id = {str(user_id)} не найден")
 
         roles = await self.role_perm_repo.get_roles(ids=role_ids)
 
-        return await self.role_perm_repo.set_user_role(user=usr, roles=[RoleEntity(id=role.get('id')) for role in roles])
+        return await self.role_perm_repo.set_user_roles(user=usr, roles=[r.role for r in roles])
+
+    async def get_user_roles(self, user: UserEntity) -> UserWithRolesEntity:
+        user_roles = await self.role_perm_repo.get_users_roles(users=[user])
+        if not user_roles:
+            raise UserNotHaveRoles
+
+        user_roles = user_roles[0]
+
+        return user_roles
+
+    async def remove_roles_from_user(self, user_id: UUID, role_ids: List[UUID]) -> UserWithRolesEntity:
+        usr = await self.repo.get_by_id(user_id)
+        if usr is None:
+            raise UserGetError(f"Пользователь с id = {str(user_id)} не найден")
+
+        roles = await self.role_perm_repo.get_roles(ids=role_ids)
+
+        return await self.role_perm_repo.delete_user_roles(user=usr, roles=[r.role for r in roles])
+
+    async def get_all_users(self,
+                            ids: List[UUID] | None,
+                            emails: List[str] | None,
+                            created_from: datetime | None,
+                            created_to: datetime | None,
+                            updated_from: datetime | None,
+                            updated_to: datetime | None,
+                            is_active: bool | None,
+                            deleted_from: datetime | None,
+                            deleted_to: datetime | None,
+                            role_ids: List[UUID] | None) -> List[UserWithRolesEntity]:
+        return await self.repo.get(ids=ids,
+                                   emails=emails,
+                                   created_from=created_from,
+                                   created_to=created_to,
+                                   updated_from=updated_from,
+                                   updated_to=updated_to,
+                                   is_active=is_active,
+                                   deleted_from=deleted_from,
+                                   deleted_to=deleted_to,
+                                   role_ids=role_ids)
 

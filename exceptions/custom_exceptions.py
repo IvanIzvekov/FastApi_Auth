@@ -28,10 +28,7 @@ class UserEmailExistsError(Exception):
 class UserUpdateError(Exception):
     pass
 
-class NotFoundError:
-    pass
-
-class RolePermissionNotFound(Exception):
+class NotFoundError(Exception):
     pass
 
 class RoleGetError(Exception):
@@ -44,4 +41,7 @@ class PermissionAlreadyExistsError(Exception):
     pass
 
 class PermissionGetError(Exception):
+    pass
+
+class UserNotHaveRoles(Exception):
     pass

@@ -9,6 +9,7 @@ class EnumPermissionType(str, Enum):
     update = "update"
     delete = "delete"
     create = "post"
+    start = "start"
 
 class PermissionCreate(BaseModel):
     entity_name: str
@@ -16,6 +17,7 @@ class PermissionCreate(BaseModel):
     is_all_attr: bool
 
     @field_validator("entity_name")
+    @classmethod
     def check_entity_name(cls, v):
         if ":" in v:
             raise ValueError("Название сущности не может содержать символ ':'")

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from enum import Enum
 from datetime import datetime
 from uuid import UUID
@@ -12,7 +12,7 @@ class DeviceType(str, Enum):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=6, max_length=20)
     device: DeviceType
 
 class TokenResponse(BaseModel):

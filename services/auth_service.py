@@ -72,7 +72,6 @@ class AuthService:
         """Получить текущего пользователя по access"""
         try:
             token = token.strip()
-            print(111)
             payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
             print(payload)
             session_id = payload.get("session_id")

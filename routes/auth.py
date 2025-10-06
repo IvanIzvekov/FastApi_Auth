@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from schemas.auth import LoginRequest, TokenResponse, RefreshRequest
-from entities.entities import UserEntity, SessionEntity
+from entities.entities import UserEntity, SessionEntity, CurrentUser
 from sqlalchemy.ext.asyncio import AsyncSession
-from dependencies import get_db, extract_token
+from dependencies import get_db
 from repositories.user_repo import UserRepository
 from repositories.session_repo import SessionRepository
 from services.auth_service import AuthService
@@ -33,12 +33,12 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/logout")
 async def logout(
-    data: dict[str, UserEntity | SessionEntity] = Depends(get_current_user),
+    data: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     service = AuthService(SessionRepository(db=db), UserRepository(db=db))
     try:
-        await service.logout(session=data.get("session"))
+        await service.logout(session=data.session)
         return JSONResponse(status_code=204, content={"detail": "Logged out"})
     except UnauthorizedException as e:
         raise HTTPException(status_code=401, detail=str(e))
