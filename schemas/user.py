@@ -74,3 +74,20 @@ class UpdateUser(BaseModel):
         if not value.isalpha():
             raise ValueError("Name must contain only letters (A-Z or А-Я)")
         return value.title()
+
+class UpdateAllUsers(BaseModel):
+    first_name: Optional[str] = Field(None, min_length=3, max_length=20)
+    last_name: Optional[str] = Field(None, min_length=3, max_length=20)
+    patronymic: Optional[str] = Field(None, min_length=3, max_length=20)
+    password: Optional[str] = Field(None, min_length=6, max_length=20)
+    email: Optional[EmailStr] = None
+
+    @field_validator("first_name", "last_name", "patronymic")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value.isalpha():
+            raise ValueError("Name must contain only letters (A-Z or А-Я)")
+        return value.title()

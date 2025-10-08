@@ -76,7 +76,7 @@ class UserRepository:
             )
             result = await self._db.execute(stmt)
             user_orm = result.scalar_one_or_none()
-            if not user:
+            if user_orm is None:
                 raise UserGetError(f"Пользователь с id={user.id} не найден")
             if user.first_name:
                 user_orm.first_name = user.first_name

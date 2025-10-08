@@ -1,6 +1,7 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from functools import partial
 
 from entities.entities import UserEntity, CurrentUser
 
@@ -51,7 +52,7 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=409, detail=str(e))
 
 
-@router.patch("/")
+@router.patch("/me")
 async def update_user(data: UpdateUser,
                       info: CurrentUser = Depends(get_current_user),
                       db: AsyncSession = Depends(get_db),
@@ -63,7 +64,7 @@ async def update_user(data: UpdateUser,
             first_name=data.first_name,
             last_name=data.last_name,
             patronymic=data.patronymic,
-            email=str(data.email),
+            email=str(data.email) if data.email else None,
             hash_password=data.password
         )
         user_w_r = await service.update_user(user=user)
@@ -179,10 +180,11 @@ async def update_user(user_id: str,
     try:
         service = UserService(UserRepository(db), RolePermissionRepository(db))
         user = UserEntity(
+            id=UUID(user_id),
             first_name=info_user.first_name,
             last_name=info_user.last_name,
             patronymic=info_user.patronymic,
-            email=str(info_user.email),
+            email=str(info_user.email) if info_user.email else None,
             hash_password=info_user.password
         )
         user_w_r = await service.update_user(user=user)
@@ -191,4 +193,6 @@ async def update_user(user_id: str,
 
         return user_w_r
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=str(e))
+    except UserGetError as e:
+        raise HTTPException(status_code=404, detail=str(e))

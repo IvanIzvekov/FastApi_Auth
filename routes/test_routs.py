@@ -39,7 +39,7 @@ async def test(db: AsyncSession = Depends(get_db)):
     db.add_all([role, role_2, role_3])
     await db.flush()
 
-    hash_pass = await AuthService.hash_password("admin")
+    hash_pass = await AuthService.hash_password("admin123")
     user = User(
         first_name="admin",
         last_name="admin",

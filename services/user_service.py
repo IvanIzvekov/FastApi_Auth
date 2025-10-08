@@ -38,6 +38,8 @@ class UserService:
 
             user = await self.repo.update(user=user)
             return user
+        except UserGetError as e:
+            raise e
         except UserEmailExistsError as e:
             raise ValueError(str(e))
         except UserUpdateError as e:
