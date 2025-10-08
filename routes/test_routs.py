@@ -1,90 +1,58 @@
 from fastapi import APIRouter, Depends
 from dependencies import get_db
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine
 from sqlalchemy import select
 from models import User, Role, Permission
 from database import engine, Base
-from repositories.session_repo import SessionRepository
 from services.auth_service import AuthService
-from repositories.user_repo import UserRepository
-from repositories.session_repo import SessionRepository
 
 router = APIRouter()
 
 
+async def recreate_all_async(engine: AsyncEngine):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+
 @router.get("/test")
 async def test(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User))
-    users = result.scalars().all()
-    if users:
-        Base.metadata.drop_all(bind=engine)
+    await recreate_all_async(engine)
 
-    role = Role(name="admin")
-    role_2 = Role(name="user")
-    role_3 = Role(name="seller")
-    db.add(role)
-    db.add(role_2)
-    db.add(role_3)
+    perms = [Permission(name=n) for n in [
+        "product:get_all", "product:get", "product:update", "product:update_all",
+        "product:delete_all", "product:delete", "product:post", "product:post_all",
+        "user:delete", "user:delete_all", "user:update_all", "user:update",
+        "user:get", "user:get_all", "role:get", "role:update", "role:update_all",
+        "role:delete_all", "role:delete", "role:post_all", "role:post",
+        "permission:get", "permission:update", "permission:update_all",
+        "permission:delete_all", "permission:delete", "permission:post",
+        "user.remove_role:start:start", "user.add_role:start:start",
+        "role.add_permissions:start", "role.delete_permissions:start",
+    ]]
+    db.add_all(perms)
     await db.flush()
 
-    await db.refresh(role)
-    await db.refresh(role_2)
-    await db.refresh(role_3)
+    role = Role(name="admin", permissions=perms)
+    role_2 = Role(name="user", permissions=[perms[8], perms[11], perms[12]])
+    role_3 = Role(name="seller")
+
+    db.add_all([role, role_2, role_3])
+    await db.flush()
 
     hash_pass = await AuthService.hash_password("admin")
-    user = User(first_name="admin", last_name="admin", patronymic="admin", email="admin@admin.com", hash_password=hash_pass, roles=[role])
+    user = User(
+        first_name="admin",
+        last_name="admin",
+        patronymic="admin",
+        email="admin@admin.com",
+        hash_password=hash_pass,
+        roles=[role]
+    )
     db.add(user)
-    await db.flush()
-    await db.refresh(user)
 
-    perms = [Permission(name="product:get_all"),
-             Permission(name="product:get"),
-             Permission(name="product:update"),
-             Permission(name="product:update_all"),
-             Permission(name="product:delete_all"),
-             Permission(name="product:delete"),
-             Permission(name="product:post"),
-             Permission(name="product:post_all"),
-             Permission(name="user:delete"),
-             Permission(name="user:delete_all"),
-             Permission(name="user:update_all"),
-             Permission(name="user:update"),
-             Permission(name="user:get"),
-             Permission(name="user:get_all"),
-             Permission(name="role:get"),
-             Permission(name="role:update"),
-             Permission(name="role:update_all"),
-             Permission(name="role:delete_all"),
-             Permission(name="role:delete"),
-             Permission(name="role:post_all"),
-             Permission(name="role:post"),
-             Permission(name="permission:get"),
-             Permission(name="permission:update"),
-             Permission(name="permission:update_all"),
-             Permission(name="permission:delete_all"),
-             Permission(name="permission:delete"),
-             Permission(name="permission:post"),
-             Permission(name="user.remove_role:start:start"),
-             Permission(name="user.add_role:start:start"),
-             Permission(name="role.add_permissions:start"),
-             Permission(name="role.delete_permissions:start")]
-
-    for perm in perms:
-        db.add(perm)
-        await db.refresh(perm)
-
-    role.permissions = perms
-
-    await db.flush()
-    await db.refresh(role)
-
-    role_2.permissions = [perms[8], perms[11], perms[12]]
-    await db.flush()
-    await db.refresh(role_2)
-
-    user.roles = role
-    await db.flush()
+    await db.commit()
 
     return {"detail": "Admin created, Roles created, perms created.",
             "email": "admin@admin.com",
             "password": "admin"}
+

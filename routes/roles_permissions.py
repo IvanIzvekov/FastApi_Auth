@@ -18,7 +18,9 @@ from exceptions.custom_exceptions import RoleAlreadyExistsError, PermissionAlrea
 
 router = APIRouter(prefix="/roles")
 
-@router.post("/")
+# ADMIN ROUTERS
+
+@router.post("/", description="ADMIN")
 async def create_role(data: RoleCreate,
                       data_user: CurrentUser = Depends(get_current_user),
                       db: AsyncSession = Depends(get_db)):
@@ -37,7 +39,7 @@ async def create_role(data: RoleCreate,
     except RoleAlreadyExistsError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-@router.post("/permissions")
+@router.post("/permissions", description="ADMIN")
 async def create_permission(data: PermissionCreate,
                             data_user: CurrentUser = Depends(get_current_user),
                             db: AsyncSession = Depends(get_db),
@@ -56,7 +58,41 @@ async def create_permission(data: PermissionCreate,
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/")
+@router.post("/add-permissions", description="ADMIN")
+async def add_permissions_to_role(data: RolePermissionCreate,
+                                  data_user: CurrentUser = Depends(get_current_user),
+                                  db: AsyncSession = Depends(get_db),
+                                  permission_user = Depends(get_permission_user(permission_name="role.add_permissions:start"))):
+    try:
+        service = RolePermissionService(repo=RolePermissionRepository(db=db))
+        result = await service.add_permissions_to_role(role_id=data.role_id, permission_ids=data.permission_ids)
+        return result.to_dict()
+    except (RoleGetError, PermissionGetError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.delete("/delete-permissions", description="ADMIN")
+async def delete_permissions_from_role(data: RolePermissionCreate,
+                                       data_user: CurrentUser = Depends(get_current_user),
+                                       db: AsyncSession = Depends(get_db),
+                                       permission_user = Depends(get_permission_user(permission_name="role.delete_permissions:start"))):
+    try:
+        service = RolePermissionService(repo=RolePermissionRepository(db=db))
+        result = await service.delete_permissions_from_role(role_id=data.role_id, permission_ids=data.permission_ids)
+        return result.to_dict()
+    except (RoleGetError, PermissionGetError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/permissions", description="ADMIN")
+async def get_permissions(perms: PermissionRead,
+                          data_user: CurrentUser = Depends(get_current_user),
+                          db: AsyncSession = Depends(get_db),
+                          permission_user = Depends(get_permission_user(permission_name="permission:get"))):
+    service = RolePermissionService(repo=RolePermissionRepository(db=db))
+    permissions = await service.get_permissions(ids=perms.ids, names=perms.names)
+    response = [permission.to_dict() for permission in permissions]
+    return response
+
+@router.get("/", description="ADMIN")
 async def get_roles(roles: RoleRead,
                     data_user: CurrentUser = Depends(get_current_user),
                     db: AsyncSession = Depends(get_db),
@@ -69,38 +105,3 @@ async def get_roles(roles: RoleRead,
                                     date_to=roles.date_to if roles.date_to else None)
 
     return [role.to_dict() for role in roles]
-
-@router.get("/permissions")
-async def get_permissions(perms: PermissionRead,
-                          data_user: CurrentUser = Depends(get_current_user),
-                          db: AsyncSession = Depends(get_db),
-                          permission_user = Depends(get_permission_user(permission_name="permission:get"))):
-    service = RolePermissionService(repo=RolePermissionRepository(db=db))
-    permissions = await service.get_permissions(ids=perms.ids, names=perms.names)
-    response = [permission.to_dict() for permission in permissions]
-    return response
-
-# ADMIN ROUTERS
-@router.post("/add-permissions")
-async def add_permissions_to_role(data: RolePermissionCreate,
-                                  data_user: CurrentUser = Depends(get_current_user),
-                                  db: AsyncSession = Depends(get_db),
-                                  permission_user = Depends(get_permission_user(permission_name="role.add_permissions:start"))):
-    try:
-        service = RolePermissionService(repo=RolePermissionRepository(db=db))
-        result = await service.add_permissions_to_role(role_id=data.role_id, permission_ids=data.permission_ids)
-        return result.to_dict()
-    except (RoleGetError, PermissionGetError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-@router.delete("/delete-permissions")
-async def delete_permissions_from_role(data: RolePermissionCreate,
-                                       data_user: CurrentUser = Depends(get_current_user),
-                                       db: AsyncSession = Depends(get_db),
-                                       permission_user = Depends(get_permission_user(permission_name="role.delete_permissions:start"))):
-    try:
-        service = RolePermissionService(repo=RolePermissionRepository(db=db))
-        result = await service.delete_permissions_from_role(role_id=data.role_id, permission_ids=data.permission_ids)
-        return result.to_dict()
-    except (RoleGetError, PermissionGetError) as e:
-        raise HTTPException(status_code=404, detail=str(e))

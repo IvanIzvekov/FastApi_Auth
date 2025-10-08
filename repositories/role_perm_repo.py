@@ -142,7 +142,7 @@ class RolePermissionRepository:
         return UserWithRolesEntity(
             user=UserEntity(
                 id=user_orm.id,
-                first_name=user_orm,
+                first_name=user_orm.first_name,
                 last_name=user_orm.last_name,
                 patronymic=user_orm.patronymic,
                 email=user_orm.email,

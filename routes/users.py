@@ -8,7 +8,7 @@ from repositories.session_repo import SessionRepository
 from repositories.role_perm_repo import RolePermissionRepository
 from repositories.user_repo import UserRepository
 
-from schemas.user import UserCreate, UpdateUser, UsersRead
+from schemas.user import UserCreate, UpdateUser, UsersRead, UpdateAllUsers
 from schemas.role import RoleAdd
 
 from dependencies import get_db, get_current_user, get_permission_user
@@ -37,8 +37,12 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
         )
         user =  await service.create_user(user=usr_ent)
         user = user.to_dict()
-        user["detail"] = "User created"
-        return user
+        user.pop("hash_password")
+
+        resp = {}
+        resp["detail"] = "User created"
+        resp['data'] = user
+        return resp
     except UserGetError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except RoleGetError as e:
@@ -56,18 +60,17 @@ async def update_user(data: UpdateUser,
     try:
         service = UserService(UserRepository(db), RolePermissionRepository(db))
         user = UserEntity(
-            id=info.user.id,
             first_name=data.first_name,
             last_name=data.last_name,
             patronymic=data.patronymic,
-            email=data.email,
+            email=str(data.email),
             hash_password=data.password
         )
-        user_w_r =  await service.update_user(user=user)
+        user_w_r = await service.update_user(user=user)
         user_w_r = user_w_r.to_dict()
         user_w_r["user"].pop("hash_password")
 
-        return user
+        return user_w_r
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -77,7 +80,19 @@ async def get_current_user_route(
     permission_user = Depends(get_permission_user(permission_name="user:get"))
 ):
     user = data.user.to_dict()
-    user = user.pop("hash_password")
+    user.pop("hash_password")
+    return user
+
+@router.get("/role")
+async def get_current_user_route(
+    data: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    permission_user = Depends(get_permission_user(permission_name="user:get"))
+):
+    service = UserService(UserRepository(db), RolePermissionRepository(db))
+    user = await service.get_user_roles(data.user)
+    user = user.to_dict()
+    user.get('user').pop("hash_password")
     return user
 
 
@@ -100,37 +115,8 @@ async def delete_user(data: CurrentUser = Depends(get_current_user),
     except SessionDeactivateError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
 # ADMIN ROUTS
-@router.post("/add-role")
-async def add_role(roles: RoleAdd,
-                   data: CurrentUser = Depends(get_current_user),
-                   db: AsyncSession = Depends(get_db),
-                   permission_user = Depends(get_permission_user(permission_name="user.add_role:start"))
-                   ):
-    try:
-        service = UserService(UserRepository(db=db), RolePermissionRepository(db=db))
-
-        result = await service.add_roles_to_user(user_id=roles.user_id, role_ids=roles.role_ids)
-        return result.to_dict()
-    except (RoleGetError, UserGetError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-@router.delete("/remove-role")
-async def remove_role(roles: RoleAdd,
-                      data: CurrentUser = Depends(get_current_user),
-                      db: AsyncSession = Depends(get_db),
-                      permission_user = Depends(get_permission_user(permission_name="user.remove_role:start"))
-                      ):
-    try:
-        service = UserService(UserRepository(db=db), RolePermissionRepository(db=db))
-
-        result = await service.remove_roles_from_user(user_id=roles.user_id, role_ids=roles.role_ids)
-        return result.to_dict()
-    except (RoleGetError, UserGetError) as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-@router.get("/all")
+@router.get("/all", description="ADMIN")
 async def get_user(filters: UsersRead = Depends(),
                    token_data: CurrentUser = Depends(get_current_user),
                    db: AsyncSession = Depends(get_db),
@@ -154,3 +140,55 @@ async def get_user(filters: UsersRead = Depends(),
     except UserGetError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+@router.delete("/remove-role", description="ADMIN")
+async def remove_role(roles: RoleAdd,
+                      data: CurrentUser = Depends(get_current_user),
+                      db: AsyncSession = Depends(get_db),
+                      permission_user = Depends(get_permission_user(permission_name="user.remove_role:start"))
+                      ):
+    try:
+        service = UserService(UserRepository(db=db), RolePermissionRepository(db=db))
+
+        result = await service.remove_roles_from_user(user_id=roles.user_id, role_ids=roles.role_ids)
+        return result.to_dict()
+    except (RoleGetError, UserGetError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/add-role", description="ADMIN")
+async def add_role(roles: RoleAdd,
+                   data: CurrentUser = Depends(get_current_user),
+                   db: AsyncSession = Depends(get_db),
+                   permission_user=Depends(get_permission_user(permission_name="user.add_role:start"))
+                   ):
+    try:
+        service = UserService(UserRepository(db=db), RolePermissionRepository(db=db))
+
+        result = await service.add_roles_to_user(user_id=roles.user_id, role_ids=roles.role_ids)
+        return result.to_dict()
+    except (RoleGetError, UserGetError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/{user_id}", description="ADMIN")
+async def update_user(user_id: str,
+                      info_user: UpdateAllUsers,
+                      data: CurrentUser = Depends(get_current_user),
+                      db: AsyncSession = Depends(get_db),
+                      permission_user=Depends(get_permission_user(permission_name="user:update_all"))
+                      ):
+    try:
+        service = UserService(UserRepository(db), RolePermissionRepository(db))
+        user = UserEntity(
+            first_name=info_user.first_name,
+            last_name=info_user.last_name,
+            patronymic=info_user.patronymic,
+            email=str(info_user.email),
+            hash_password=info_user.password
+        )
+        user_w_r = await service.update_user(user=user)
+        user_w_r = user_w_r.to_dict()
+        user_w_r["user"].pop("hash_password")
+
+        return user_w_r
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
